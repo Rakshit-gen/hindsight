@@ -50,3 +50,57 @@ type Table struct {
 	Retry string `json:"retry,omitempty"`
 	Rules []Rule `json:"rules"`
 }
+
+func Parse(data []byte) (*Table, error) {
+	var t Table
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&t); err != nil {
+		return nil, fmt.Errorf("policy: %w", err)
+	}
+	if err := t.validate(); err != nil {
+		return nil, fmt.Errorf("policy: %w", err)
+	}
+	return &t, nil
+}
+
+func Load(path string) (*Table, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	t, err := Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if t.Name == "" {
+		t.Name = strings.TrimSuffix(path[strings.LastIndex(path, "/")+1:], ".json")
+	}
+	return t, nil
+}
+
+func (t *Table) validate() error {
+	if t.Epsilon < 0 || t.Epsilon > 1 {
+		return fmt.Errorf("epsilon %v should be between 0 and 1", t.Epsilon)
+	}
+	if t.Retry != "" && t.Retry != "next" && t.Retry != "same" {
+		return fmt.Errorf(`retry %q should be "next" or "same"`, t.Retry)
+	}
+	if len(t.Rules) == 0 {
+		return errors.New("no rules")
+	}
+	for i, r := range t.Rules {
+		if (len(r.Order) == 0) == (len(r.Split) == 0) {
+			return fmt.Errorf("rule %d: needs an order or a split, not both", i+1)
+		}
+		for g, w := range r.Split {
+			if w < 0 {
+				return fmt.Errorf("rule %d: weight for %s is negative", i+1, g)
+			}
+		}
+		if r.Epsilon != nil && (*r.Epsilon < 0 || *r.Epsilon > 1) {
+			return fmt.Errorf("rule %d: epsilon %v should be between 0 and 1", i+1, *r.Epsilon)
+		}
+	}
+	return nil
+}
