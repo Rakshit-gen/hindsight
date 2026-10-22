@@ -99,3 +99,102 @@ func readJSONL(r io.Reader) ([]Attempt, error) {
 	}
 	return out, sc.Err()
 }
+
+// CSV puts lists in one cell with | between items: eligible is
+// "alder|birch", probs is "alder:0.95|birch:0.05". Columns it doesn't know
+// are context.
+func readCSV(r io.Reader) ([]Attempt, error) {
+	cr := csv.NewReader(r)
+	cr.FieldsPerRecord = -1
+	head, err := cr.Read()
+	if err != nil {
+		return nil, fmt.Errorf("csv header: %w", err)
+	}
+	for i := range head {
+		head[i] = strings.ToLower(strings.TrimSpace(head[i]))
+	}
+	for _, need := range []string{"payment", "attempt", "at", "eligible", "gateway", "propensity", "outcome"} {
+		if !slices.Contains(head, need) {
+			return nil, fmt.Errorf("csv header has no %q column", need)
+		}
+	}
+	var out []Attempt
+	for line := 2; ; line++ {
+		rec, err := cr.Read()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		a := Attempt{Context: map[string]string{}}
+		for i, v := range rec {
+			if i >= len(head) {
+				break
+			}
+			v = strings.TrimSpace(v)
+			if err := a.set(head[i], v); err != nil {
+				return nil, fmt.Errorf("line %d, %s: %w", line, head[i], err)
+			}
+		}
+		if err := check(a); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		out = append(out, a)
+	}
+}
+
+func (a *Attempt) set(col, v string) error {
+	var err error
+	switch col {
+	case "payment":
+		a.Payment = v
+	case "attempt":
+		a.Attempt, err = strconv.Atoi(v)
+	case "at":
+		a.At, err = parseTime(v)
+	case "settled_at":
+		if v != "" {
+			a.SettledAt, err = parseTime(v)
+		}
+	case "eligible":
+		a.Eligible = strings.Split(v, "|")
+	case "gateway":
+		a.Gateway = v
+	case "propensity":
+		a.Propensity, err = strconv.ParseFloat(v, 64)
+	case "probs":
+		if v == "" {
+			return nil
+		}
+		a.Probs = map[string]float64{}
+		for kv := range strings.SplitSeq(v, "|") {
+			k, p, ok := strings.Cut(kv, ":")
+			if !ok {
+				return fmt.Errorf("%q should look like gateway:probability", kv)
+			}
+			if a.Probs[k], err = strconv.ParseFloat(p, 64); err != nil {
+				return err
+			}
+		}
+	case "outcome":
+		a.Outcome = v
+	default:
+		if v != "" {
+			a.Context[col] = v
+		}
+	}
+	return err
+}
+
+// parseTime takes unix milliseconds or RFC 3339.
+func parseTime(v string) (int64, error) {
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return n, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		return 0, fmt.Errorf("%q is neither unix milliseconds nor RFC 3339", v)
+	}
+	return t.UnixMilli(), nil
+}
