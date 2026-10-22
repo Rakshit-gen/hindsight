@@ -110,6 +110,42 @@ The model in `dm` and `dr` is cross-fitted: each half of the payments is valued 
 
 The model knows nothing about time, outages or why an attempt failed, which is how a model fitted to real logs turns out too. `dr` corrects what it gets wrong; `dm` doesn't, and its interval only reflects how payments vary, not how wrong the model is, so it's too narrow. Read `dr` and `snips`.
 
+## Does it get the right answer?
+
+There's no way to check an off-policy estimate on real logs, because the true value of a policy nobody ran is what's unknown. So `hindsight bench` checks it in an invented world (package [`sim`](sim)) where the exact answer can be computed. **Every number in this section comes from that world, not from any real gateway.** Its rates, shares and delays are made up to have the shape of Indian online payments: three gateways (alder, birch, cedar), UPI about 62% of volume, cards 30%, netbanking 8%, a long tail of banks, a few gateway and bank pairings that are much worse than the rest, customers who fail on their own, banks that keep declining a payment whichever gateway it comes through, gateways that keep erroring on the same payment, UPI outcomes that arrive one to ten minutes late, and a 90-minute outage on birch's UPI on the first afternoon. Every policy meets the same customers with the same luck, and a rule table's exact paid rate on a set of payments is computed by following every branch.
+
+Each row below is 20 simulated days of about 60 payments a minute (around 77,000 payments a day), with the last 15 minutes left out. Run it with `hindsight bench`; it takes about four minutes on a laptop. The changes being scored, against today's rules:
+
+- `sbi-cards-to-cedar`: SBI cards go to cedar first. About 4% of payments; birch is bad with SBI cards.
+- `upi-to-alder`: UPI goes to alder first. Most payments. Its gain comes from the outage on birch: on the same day without it, the change loses 0.51 points.
+- `retry-same-gateway`: retries stay on the gateway that just failed. No first attempt changes.
+
+### Estimators
+
+Logger: today's rules, 10% explored. Points of paid rate.
+
+| change | true difference | estimator | mean estimate | bias | rmse | 95% interval ± | covers truth |
+|---|---|---|---|---|---|---|---|
+| sbi-cards-to-cedar | +0.21 | first | +0.15 | -0.060 | 0.302 | 0.70 | 95% |
+|  |  | ips | +0.15 | -0.061 | 0.301 | 0.70 | 95% |
+|  |  | snips | +0.21 | +0.001 | 0.164 | 0.26 | 95% |
+|  |  | dm | +0.24 | +0.030 | 0.096 | 0.01 | 0% |
+|  |  | dr | +0.21 | +0.000 | 0.171 | 0.26 | 95% |
+| upi-to-alder | +1.00 | first | +0.67 | -0.323 | 1.274 | 2.82 | 100% |
+|  |  | ips | +0.64 | -0.353 | 1.322 | 2.83 | 100% |
+|  |  | snips | +0.79 | -0.211 | 0.459 | 1.17 | 100% |
+|  |  | dm | +0.25 | -0.744 | 0.870 | 0.01 | 0% |
+|  |  | dr | +0.79 | -0.212 | 0.461 | 1.17 | 100% |
+| retry-same-gateway | -2.28 | first | +0.00 | +2.275 | 2.278 | 0.00 | 0% |
+|  |  | ips | -2.51 | -0.239 | 0.990 | 1.99 | 70% |
+|  |  | snips | -2.71 | -0.431 | 1.606 | 2.83 | 90% |
+|  |  | dm | -0.84 | +1.437 | 1.444 | 0.00 | 0% |
+|  |  | dr | -2.68 | -0.404 | 1.332 | 2.25 | 95% |
+
+- The first-attempt estimate says keeping retries on the same gateway changes nothing. It costs 2.28 points. That's the case for scoring whole payments.
+- The outcome model alone is confident and wrong: its intervals are a hundredth of a point wide and never cover the truth. On the retry change it sees a third of the loss, because it doesn't know a gateway that errored on a payment tends to error again.
+- `snips` and `dr` have about half the error of plain `ips` and cover the truth at about the rate they should. Even so, after one day at 10% exploration each interval is about as wide as the effect it measures, which is what the planner below is for.
+
 ## License
 
 MIT
