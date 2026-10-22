@@ -218,3 +218,43 @@ func check(a Attempt) error {
 	}
 	return nil
 }
+
+// Group collects attempts into payments, oldest first.
+func Group(as []Attempt) ([]Payment, error) {
+	by := map[string][]Attempt{}
+	var order []string
+	for _, a := range as {
+		if _, ok := by[a.Payment]; !ok {
+			order = append(order, a.Payment)
+		}
+		by[a.Payment] = append(by[a.Payment], a)
+	}
+	ps := make([]Payment, 0, len(order))
+	for _, id := range order {
+		xs := by[id]
+		sort.Slice(xs, func(i, j int) bool { return xs[i].Attempt < xs[j].Attempt })
+		for i, a := range xs {
+			if a.Attempt != i+1 {
+				return nil, fmt.Errorf("payment %s: attempts should run 1, 2, 3 with no gaps or repeats; found %d where %d belongs", id, a.Attempt, i+1)
+			}
+			if a.Paid() && i < len(xs)-1 {
+				return nil, fmt.Errorf("payment %s: paid on attempt %d but tried again", id, a.Attempt)
+			}
+		}
+		ps = append(ps, Payment{ID: id, Attempts: xs})
+	}
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Start() < ps[j].Start() })
+	return ps, nil
+}
+
+// Write emits JSON lines.
+func Write(w io.Writer, as []Attempt) error {
+	bw := bufio.NewWriter(w)
+	enc := json.NewEncoder(bw)
+	for _, a := range as {
+		if err := enc.Encode(a); err != nil {
+			return err
+		}
+	}
+	return bw.Flush()
+}
