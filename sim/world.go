@@ -75,3 +75,32 @@ const (
 	// the bank declining; the rest are gateway errors.
 	declineShare = 0.4
 )
+
+// Payment is one customer checkout.
+type Payment struct {
+	I      uint64
+	At     int64 // unix ms
+	Method string
+	Issuer string
+}
+
+func (p Payment) ID() string { return "p" + strconv.FormatUint(p.I, 10) }
+func (p Payment) Context() map[string]string {
+	return map[string]string{"method": p.Method, "issuer": p.Issuer}
+}
+func (p Payment) Eligible() []string    { return eligible[p.Method] }
+func (p Payment) attemptAt(k int) int64 { return p.At + int64(k-1)*RetryGap.Milliseconds() }
+
+// Incident multiplies one gateway's success rate on one method for a while.
+type Incident struct {
+	Gateway string
+	Method  string
+	Start   time.Duration // from Epoch
+	Length  time.Duration
+	Factor  float64
+}
+
+type World struct {
+	Seed      uint64
+	Incidents []Incident
+}
