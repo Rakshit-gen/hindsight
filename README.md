@@ -47,6 +47,53 @@ hindsight plan --per-day 80000 --share 0.04 --lift 0.15
 
 `eval` prints each estimator's paid rate and its difference from the baseline, with 95% intervals, then the diagnostics and any warnings. `--json` prints the same as JSON. `--clip` caps weights, which trades variance for bias toward the logger.
 
+## Logs
+
+One record per attempt, as JSON lines or CSV with a header row.
+
+```json
+{"payment":"p1","attempt":1,"at":1767620000000,"context":{"method":"card","issuer":"sbin"},
+ "eligible":["alder","birch","cedar"],"gateway":"birch","propensity":0.9333,
+ "probs":{"alder":0.0333,"birch":0.9333,"cedar":0.0333},"outcome":"declined","settled_at":1767620030000}
+```
+
+| field | |
+|---|---|
+| `payment` | groups attempts into payments |
+| `attempt` | 1, 2, 3 with no gaps |
+| `at` | unix milliseconds or RFC 3339 |
+| `context` | whatever the router knew: method, bank, card network, amount band. Policies match on these. In CSV, any column not listed here is context. |
+| `eligible` | gateways that could take this attempt. In CSV, `alder\|birch`. |
+| `gateway` | where it went |
+| `propensity` | the chance the router had of picking `gateway`, at that moment |
+| `probs` | optional: the router's whole distribution. With it, hindsight can tell exactly where the router could never have gone. In CSV, `alder:0.03\|birch:0.93`. |
+| `outcome` | `success`, `pending`, or anything else for a failure |
+| `settled_at` | optional: when the outcome became known |
+
+The propensity has to be the one the router used when it chose. A router that picks by rules with a share sent at random knows it exactly. A Thompson sampling router doesn't, by default: it draws one sample and takes the best. The fix is to estimate the win chances first (sample the beliefs a thousand times, count wins, mix in a floor), route by those chances, and log them. Then the propensity is exact by construction, and the chances can be cached for a minute so it isn't slow.
+
+## Policies
+
+Policies are rule tables in JSON, the form most routing configs already take.
+
+```json
+{
+  "name": "sbi-cards-to-cedar",
+  "epsilon": 0,
+  "retry": "next",
+  "rules": [
+    {"when": {"method": "card", "issuer": "sbin"}, "order": ["cedar", "birch", "alder"]},
+    {"when": {"method": "card"}, "order": ["birch", "cedar", "alder"]},
+    {"when": {"method": "upi", "attempt": "2+"}, "split": {"alder": 1, "cedar": 1}},
+    {"order": ["birch", "alder", "cedar"]}
+  ]
+}
+```
+
+The first rule whose `when` matches and that can place the payment does. `order` sends it to the first candidate on the list; `split` spreads it by weight. `when` values can be `a|b`, and the key `attempt` matches the attempt number, with `2+` for any retry. `retry: "next"`, the default, leaves out gateways the payment already tried unless none are left; `"same"` doesn't. `epsilon` sends that share of payments to a random eligible gateway, tried or not; a rule can set its own. A payment no rule places is spread evenly.
+
+The examples in [`examples/`](examples) are written for the simulated world below.
+
 ## License
 
 MIT
