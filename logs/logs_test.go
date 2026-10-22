@@ -24,3 +24,18 @@ func TestReadCSV(t *testing.T) {
 		t.Fatalf("got %+v", ps)
 	}
 }
+
+func TestReadJSONL(t *testing.T) {
+	in := `
+{"payment":"a","attempt":1,"at":5,"eligible":["x","y"],"gateway":"y","propensity":0.5,"outcome":"pending"}
+{"payment":"b","attempt":1,"at":1,"eligible":["x"],"gateway":"x","propensity":1,"outcome":"success"}
+`
+	as, err := Read(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, _ := Group(as)
+	if ps[0].ID != "b" || !as[0].Pending() {
+		t.Fatalf("payments should be oldest first: %+v", ps)
+	}
+}
