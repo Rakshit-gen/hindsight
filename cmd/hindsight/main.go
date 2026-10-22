@@ -135,3 +135,44 @@ func evalCmd(args []string) error {
 	printReport(os.Stdout, target.Name, baseName, dropped, r)
 	return nil
 }
+
+func pct(x float64) string { return strconv.FormatFloat(100*x, 'f', 2, 64) }
+
+func printReport(w io.Writer, target, base string, dropped int, r *ope.Report) {
+	fmt.Fprintf(w, "%s against %s\n", target, base)
+	fmt.Fprintf(w, "%s payments", commas(r.Payments))
+	if dropped > 0 {
+		fmt.Fprintf(w, " (%s too recent, left out)", commas(dropped))
+	}
+	fmt.Fprintf(w, "\n\n%-8s %16s %18s\n", "", "paid %", "difference, pts")
+	fmt.Fprintf(w, "%-8s %7s ± %-6s\n", "logged", pct(r.Logged.Value), pct(1.96*r.Logged.SE))
+	for _, row := range r.Rows {
+		fmt.Fprintf(w, "%-8s %7s ± %-6s %+8.2f ± %-6s\n", row.Name, pct(row.Value), pct(1.96*row.SE), 100*row.Diff.Value, pct(1.96*row.Diff.SE))
+	}
+	fmt.Fprintln(w, "\n± is a 95% interval. Read dr and snips: first ignores retries, and dm's")
+	fmt.Fprintln(w, "interval leaves out the error in its own model.")
+	printDiag(w, "", r.Diag, r.Payments)
+	if r.BaselineDiag != nil {
+		printDiag(w, "baseline ", *r.BaselineDiag, r.Payments)
+	}
+}
+
+func printDiag(w io.Writer, who string, d ope.Diagnostics, n int) {
+	fmt.Fprintf(w, "\n%sweights\n", who)
+	fmt.Fprintf(w, "  effective sample size  %s of %s\n", commas(int(d.ESS)), commas(n))
+	fmt.Fprintf(w, "  mean weight            %.3f ± %.3f (should be 1)\n", d.MeanWeight, 1.96*d.MeanWeightSE)
+	fmt.Fprintf(w, "  largest weight         %.1f, %.2f%% of all weight\n", d.MaxWeight, 100*d.MaxShare)
+	fmt.Fprintf(w, "  first attempts moved   %.2f%%\n", 100*d.Changed)
+	fmt.Fprintf(w, "  out of the logs' reach %.2f%% of choices\n", 100*d.Deficit)
+	for _, s := range d.Warnings {
+		fmt.Fprintf(w, "  ! %s\n", s)
+	}
+}
+
+func commas(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
