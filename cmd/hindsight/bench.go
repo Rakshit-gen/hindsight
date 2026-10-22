@@ -359,6 +359,47 @@ func (b bench) paired() {
 	}
 }
 
+func (b bench) horizon() {
+	fmt.Println("\n## horizon")
+	fmt.Println("\nLogs cut off mid-flight: the newest payments have outcomes still pending and")
+	fmt.Println("retries that haven't happened. Counting them as failures biases the paid rate")
+	fmt.Println("down; leaving out the last 15 minutes by start time doesn't. Logger explores")
+	fmt.Println("10%. Bias in points of paid rate, for what the logs say the logger did and for")
+	fmt.Println("dr's estimate of SBI cards to cedar.")
+	fmt.Println()
+	fmt.Println("| log length | horizon | payments left out | pending counted as failed | logger's own bias | dr bias | dr covers truth |")
+	fmt.Println("|---|---|---|---|---|---|---|")
+	logger, target := explored("today", 0.1), examples.Load("sbi-cards-to-cedar")
+	for _, hours := range []float64{1, 6, 24} {
+		for _, h := range []time.Duration{0, horizon} {
+			var own, g tally
+			var mu sync.Mutex
+			var dropped, pending float64
+			b.each(func(seed uint64) {
+				full := b.play(seed, hours/24, sim.Static{Policy: logger}, false, 0)
+				tr := full
+				tr.logged, _ = ope.Settled(full.logged, h)
+				s, err := ope.Score(tr.logged, target, ope.Options{})
+				if err != nil {
+					panic(err)
+				}
+				own.add(s.Of("logged"), tr.truth(logger))
+				g.add(s.Of("dr"), tr.truth(target))
+				mu.Lock()
+				dropped += float64(len(full.logged)-len(tr.logged)) / float64(len(full.logged))
+				pending += float64(s.Diag.Pending)
+				mu.Unlock()
+			})
+			n := float64(b.seeds)
+			label := "none"
+			if h > 0 {
+				label = "15 minutes"
+			}
+			fmt.Printf("| %g hours | %s | %.2f%% | %.0f | %+.3f | %+.3f | %.0f%% |\n", hours, label, 100*dropped/n, pending/n, own.bias(), g.bias(), g.coverage())
+		}
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
