@@ -155,3 +155,90 @@ func pick(u float64, w []float64) int {
 	}
 	return len(w) - 1
 }
+
+// Outcome is what one attempt did.
+type Outcome struct {
+	Reason string // success, customer, declined, error
+	Again  bool   // whether someone tries again, for failures
+	// Late outcomes reach the router this long after the attempt.
+	Delay time.Duration
+}
+
+// history is what earlier attempts left behind that changes later ones.
+type history struct {
+	tried, errored uint8 // bit per gateway
+	declined       bool
+}
+
+// attempt plays attempt k on gateway g. Draws are fixed per payment and
+// attempt, not per gateway, so every policy meets the same customers with
+// the same luck.
+func (w *World) attempt(p Payment, k, g int, h history) Outcome {
+	u := func(salt uint64) float64 { return unit(w.Seed, p.I, uint64(k), salt) }
+	gw := Gateways[g]
+	var reason string
+	switch {
+	case u(1) < customer[p.Method]:
+		reason = "customer"
+	case h.declined && u(2) < declineRepeats:
+		reason = "declined"
+	case h.errored&(1<<g) != 0 && u(3) < errorRepeats:
+		reason = "error"
+	case u(4) < w.Rate(gw, p, p.attemptAt(k)):
+		reason = "success"
+	case u(5) < declineShare:
+		reason = "declined"
+	default:
+		reason = "error"
+	}
+	o := Outcome{Reason: reason, Again: reason != "success" && u(6) < again[reason], Delay: Feedback}
+	if p.Method == "upi" && u(7) < pendingShare[gw] {
+		o.Delay = time.Minute + time.Duration(u(8)*float64(9*time.Minute))
+		o.Again = false // the customer waits for it instead
+	}
+	return o
+}
+
+func (h history) after(g int, reason string) history {
+	h.tried |= 1 << g
+	if reason == "error" {
+		h.errored |= 1 << g
+	}
+	if reason == "declined" {
+		h.declined = true
+	}
+	return h
+}
+
+func index(g string) int {
+	for i, x := range Gateways {
+		if x == g {
+			return i
+		}
+	}
+	return -1
+}
+
+func splitmix(x uint64) uint64 {
+	x += 0x9e3779b97f4a7c15
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	return x ^ (x >> 31)
+}
+
+// unit hashes its inputs to a number in [0, 1).
+func unit(xs ...uint64) float64 {
+	h := uint64(0x243f6a8885a308d3)
+	for _, x := range xs {
+		h = splitmix(h ^ x)
+	}
+	return float64(h>>11) / (1 << 53)
+}
+
+func hashString(s string) uint64 {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint64(s[i])) * 1099511628211
+	}
+	return h
+}
