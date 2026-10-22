@@ -176,3 +176,84 @@ func commas(n int) string {
 	}
 	return s
 }
+
+func checkCmd(args []string) error {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	logPath := fs.String("logs", "-", "decision logs, JSON lines or CSV; - for stdin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ps, err := readLogs(*logPath)
+	if err != nil {
+		return err
+	}
+	var attempts, certain, tiny, withProbs, badProbs, pending, paid int
+	byLen := map[int]int{}
+	gateways := map[string]int{}
+	var first, last int64
+	for i, p := range ps {
+		byLen[len(p.Attempts)]++
+		if p.Paid() {
+			paid++
+		}
+		for _, a := range p.Attempts {
+			attempts++
+			gateways[a.Gateway]++
+			if i == 0 || a.At < first {
+				first = a.At
+			}
+			last = max(last, a.At)
+			switch {
+			case a.Propensity >= 1-1e-9:
+				certain++
+			case a.Propensity < 0.01:
+				tiny++
+			}
+			if a.Pending() {
+				pending++
+			}
+			if a.Probs != nil {
+				withProbs++
+				sum := 0.0
+				for _, q := range a.Probs {
+					sum += q
+				}
+				if d := a.Probs[a.Gateway] - a.Propensity; sum < 0.999 || sum > 1.001 || d > 1e-6 || d < -1e-6 {
+					badProbs++
+				}
+			}
+		}
+	}
+	n := float64(attempts)
+	fmt.Printf("%s payments, %s attempts, %s to %s\n", commas(len(ps)), commas(attempts),
+		time.UnixMilli(first).UTC().Format(time.RFC3339), time.UnixMilli(last).UTC().Format(time.RFC3339))
+	fmt.Printf("paid                  %.2f%%\n", 100*float64(paid)/float64(len(ps)))
+	var lens []string
+	for k := 1; len(lens) < len(byLen); k++ {
+		if byLen[k] > 0 {
+			lens = append(lens, fmt.Sprintf("%d: %.1f%%", k, 100*float64(byLen[k])/float64(len(ps))))
+		}
+	}
+	fmt.Printf("attempts per payment  %s\n", strings.Join(lens, ", "))
+	var gs []string
+	for g, c := range gateways {
+		gs = append(gs, fmt.Sprintf("%s %.1f%%", g, 100*float64(c)/n))
+	}
+	fmt.Printf("gateways              %s\n", strings.Join(slices.Sorted(slices.Values(gs)), ", "))
+	fmt.Printf("propensity of 1       %.1f%% of attempts\n", 100*float64(certain)/n)
+	fmt.Printf("propensity under 0.01 %.1f%%\n", 100*float64(tiny)/n)
+	fmt.Printf("probs logged          %.1f%%\n", 100*float64(withProbs)/n)
+	fmt.Printf("pending               %.2f%%\n", 100*float64(pending)/n)
+	if certain == attempts {
+		fmt.Println("! every propensity is 1: the logger never explored, so only policies that agree with it everywhere can be scored")
+	} else if float64(certain) > 0.5*n {
+		fmt.Println("! most propensities are 1: policies can only be scored where they agree with the logger on those payments")
+	}
+	if badProbs > 0 {
+		fmt.Printf("! %d attempts have probs that don't sum to 1 or don't match the propensity\n", badProbs)
+	}
+	if pending > 0 {
+		fmt.Println("! some outcomes are still pending; use eval --horizon to leave recent payments out")
+	}
+	return nil
+}
