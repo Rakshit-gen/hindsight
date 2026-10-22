@@ -147,6 +147,48 @@ func explored(name string, eps float64) *policy.Table {
 	return &t
 }
 
+func (b bench) accuracy() {
+	fmt.Println("\n## accuracy")
+	fmt.Println("\nThe logger runs today's rules and explores 10% of payments. Each change is")
+	fmt.Println("scored against today's rules on the same logs; points of paid rate.")
+	fmt.Println()
+	fmt.Println("| change | true difference | estimator | mean estimate | bias | rmse | 95% interval ± | covers truth |")
+	fmt.Println("|---|---|---|---|---|---|---|---|")
+	targets := []string{"sbi-cards-to-cedar", "upi-to-alder", "retry-same-gateway"}
+	today := examples.Load("today")
+	got := map[string]*tally{}
+	for _, t := range targets {
+		for _, e := range ope.Names {
+			got[t+e] = &tally{}
+		}
+	}
+	b.each(func(seed uint64) {
+		tr := b.play(seed, b.days, sim.Static{Policy: explored("today", 0.1)}, false, horizon)
+		base := tr.truth(today)
+		for _, name := range targets {
+			target := examples.Load(name)
+			r, err := ope.Evaluate(tr.logged, target, today, ope.Options{})
+			if err != nil {
+				panic(err)
+			}
+			truth := tr.truth(target) - base
+			for _, row := range r.Rows {
+				got[name+row.Name].add(row.Diff, truth)
+			}
+		}
+	})
+	for _, t := range targets {
+		for i, e := range ope.Names {
+			g := got[t+e]
+			label, truth := "", ""
+			if i == 0 {
+				label, truth = t, fmt.Sprintf("%+.2f", g.truth())
+			}
+			fmt.Printf("| %s | %s | %s | %+.2f | %+.3f | %.3f | %.2f | %.0f%% |\n", label, truth, e, g.mean(), g.bias(), g.rmse(), g.width(), g.coverage())
+		}
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
