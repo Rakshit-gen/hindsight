@@ -104,3 +104,20 @@ type World struct {
 	Seed      uint64
 	Incidents []Incident
 }
+
+// Rate is the chance gateway g completes an attempt once the customer has
+// done their part.
+func (w *World) Rate(g string, p Payment, at int64) float64 {
+	key := g + "|" + p.Method + "|" + p.Issuer
+	r := base[p.Method] * skill[g][p.Method] * (1 + 0.03*(2*unit(w.Seed, 1, hashString(key))-1))
+	if f, ok := planted[key]; ok {
+		r *= f
+	}
+	for _, x := range w.Incidents {
+		t := time.Duration(at-Epoch) * time.Millisecond
+		if x.Gateway == g && x.Method == p.Method && t >= x.Start && t < x.Start+x.Length {
+			r *= x.Factor
+		}
+	}
+	return min(r, 0.995)
+}
