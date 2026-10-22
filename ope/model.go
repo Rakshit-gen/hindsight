@@ -75,3 +75,15 @@ func levels(ctx map[string]string, keys []string) []string {
 	}
 	return out
 }
+
+func (m *model) est(tab map[string]*[2]float64, prefix string, ctx map[string]string) float64 {
+	p := 0.5
+	for _, l := range levels(ctx, m.keys) {
+		c := tab[prefix+l]
+		if c == nil {
+			break
+		}
+		p = (c[0] + strength*p) / (c[1] + strength)
+	}
+	return p
+}
