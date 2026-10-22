@@ -154,3 +154,25 @@ func (t *Table) candidates(s State) []string {
 	}
 	return out
 }
+
+func (r Rule) matches(s State) bool {
+	for k, want := range r.When {
+		got := s.Context[k]
+		if k == "attempt" {
+			got = strconv.Itoa(s.Attempt)
+		}
+		ok := false
+		for w := range strings.SplitSeq(want, "|") {
+			if w == got {
+				ok = true
+			} else if k == "attempt" && strings.HasSuffix(w, "+") {
+				n, err := strconv.Atoi(strings.TrimSuffix(w, "+"))
+				ok = ok || (err == nil && s.Attempt >= n)
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
