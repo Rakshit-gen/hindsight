@@ -179,3 +179,29 @@ func Score(ps []logs.Payment, target policy.Policy, opt Options) (*Scores, error
 	s.Diag.Warnings = warnings(s.Diag, n)
 	return s, nil
 }
+
+func warnings(d Diagnostics, n int) []string {
+	var out []string
+	if d.ESS == 0 {
+		return append(out, "every weight is zero: the logs never made a choice this policy would make")
+	}
+	if d.Deficit > 0.001 {
+		out = append(out, fmt.Sprintf("%.1f%% of this policy's choices go where the logger never could; every estimate but dm leaves those payments out and reads low", 100*d.Deficit))
+	}
+	if d.Unknown > 0 && d.Deficit == 0 {
+		out = append(out, "propensities below 1 with no probs logged: support can't be checked; log probs to check it")
+	}
+	if d.ESS < 0.05*float64(n) || d.ESS < 100 {
+		out = append(out, fmt.Sprintf("effective sample size is %.0f of %d payments: the estimate rests on a few heavy weights, and its interval is likely too narrow", d.ESS, n))
+	}
+	if d.MaxShare > 0.05 {
+		out = append(out, fmt.Sprintf("one payment carries %.0f%% of all weight", 100*d.MaxShare))
+	}
+	if math.Abs(d.MeanWeight-1) > max(0.02, 3*d.MeanWeightSE) {
+		out = append(out, fmt.Sprintf("weights average %.3f, not 1: propensities may be wrong, or the policy goes where the logs don't", d.MeanWeight))
+	}
+	if d.Pending > 0 {
+		out = append(out, fmt.Sprintf("%d attempts are still pending and count as failures; leave recent payments out with a horizon", d.Pending))
+	}
+	return out
+}
