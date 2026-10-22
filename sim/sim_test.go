@@ -43,3 +43,29 @@ func TestTruthMatchesPlay(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayLogs(t *testing.T) {
+	w := &World{Seed: 1}
+	ps := Traffic(1, 0.1, 30)
+	end := Epoch + int64(0.1*86_400_000)
+	as := Play(w, ps, &Thompson{Floor: 0.03, HalfLife: time.Hour, Draws: 200, Seed: 1}, 1, end)
+	pending := 0
+	for _, a := range as {
+		sum := 0.0
+		for _, p := range a.Probs {
+			sum += p
+		}
+		if math.Abs(sum-1) > 1e-9 || a.Propensity != a.Probs[a.Gateway] {
+			t.Fatalf("bad probs %v for %s", a.Probs, a.Gateway)
+		}
+		if a.Pending() {
+			pending++
+		}
+	}
+	if pending == 0 {
+		t.Error("expected some UPI outcomes still pending at the end of the log")
+	}
+	if _, err := logs.Group(as); err != nil {
+		t.Fatal(err)
+	}
+}
