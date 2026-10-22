@@ -87,3 +87,29 @@ func (m *model) est(tab map[string]*[2]float64, prefix string, ctx map[string]st
 	}
 	return p
 }
+
+// pickKeys orders context keys from fewest values to most, leaving out
+// ones with so many values they're probably ids.
+func pickKeys(ps []logs.Payment) []string {
+	seen := map[string]map[string]bool{}
+	for _, p := range ps {
+		for k, v := range p.Attempts[0].Context {
+			if seen[k] == nil {
+				seen[k] = map[string]bool{}
+			}
+			if len(seen[k]) <= 200 {
+				seen[k][v] = true
+			}
+		}
+	}
+	var keys []string
+	for k, vs := range seen {
+		if len(vs) <= 200 {
+			keys = append(keys, k)
+		}
+	}
+	slices.SortFunc(keys, func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(seen[a]), len(seen[b])), cmp.Compare(a, b))
+	})
+	return keys
+}
