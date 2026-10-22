@@ -60,3 +60,17 @@ func TestEstimatorsFindTheTruth(t *testing.T) {
 		}
 	}
 }
+
+// Moving retries can't be seen from first attempts alone.
+func TestFirstAttemptMissesRetries(t *testing.T) {
+	logger := explore("today", 0.6)
+	_, _, ls := played(t, 3, logger, 1)
+	s, _ := Score(ls, examples.Load("retry-same-gateway"), Options{})
+	base, _ := Score(ls, examples.Load("today"), Options{})
+	if d := Diff(s.Cols["first"], base.Cols["first"]); d.Value != 0 {
+		t.Errorf("first-attempt estimate should not move, moved %v", d.Value)
+	}
+	if d := Diff(s.Cols["dr"], base.Cols["dr"]); d.Value > -3*d.SE {
+		t.Errorf("payment-level estimate should see the loss: %v ± %v", d.Value, d.SE)
+	}
+}
