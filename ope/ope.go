@@ -66,3 +66,116 @@ type Diagnostics struct {
 	Pending  int      `json:"pending"`
 	Warnings []string `json:"warnings,omitempty"`
 }
+
+// Score scores the target on the payments.
+func Score(ps []logs.Payment, target policy.Policy, opt Options) (*Scores, error) {
+	n := len(ps)
+	if n == 0 {
+		return nil, errors.New("no payments to score")
+	}
+	keys := opt.Keys
+	if len(keys) == 0 {
+		keys = pickKeys(ps)
+	}
+	// Cross-fitting: each half of the payments is valued by a model fitted
+	// on the other half, so the model can't memorise the outcomes it is
+	// then asked to correct.
+	var halves [2][]logs.Payment
+	for i, p := range ps {
+		halves[i%2] = append(halves[i%2], p)
+	}
+	vals := [2]*valuer{}
+	for f := range vals {
+		vals[f] = &valuer{m: fit(halves[f], keys), pol: target, memo: map[string]float64{}}
+	}
+
+	s := &Scores{Cols: map[string][]float64{}}
+	for _, name := range append([]string{"logged"}, Names...) {
+		s.Cols[name] = make([]float64, n)
+	}
+	weights := make([]float64, n)
+	var attempts, deficit, unknown, changed float64
+	for i, p := range ps {
+		v := vals[1-i%2]
+		gws := make([]string, len(p.Attempts))
+		states := make([]policy.State, len(p.Attempts))
+		for t, a := range p.Attempts {
+			gws[t] = a.Gateway
+			states[t] = policy.State{Context: a.Context, Attempt: t + 1, Tried: gws[:t:t], Eligible: a.Eligible}
+		}
+		w, first := 1.0, 0.0
+		dr := v.V(states[0])
+		for t, a := range p.Attempts {
+			probs := target.Probs(states[t])
+			w *= probs[a.Gateway] / a.Propensity
+			if opt.Clip > 0 && w > opt.Clip {
+				w = opt.Clip
+			}
+			if t == 0 {
+				first = w
+				changed += 1 - probs[a.Gateway]
+			}
+			r, next := 0.0, 0.0
+			if a.Paid() {
+				r = 1
+			}
+			if t+1 < len(p.Attempts) {
+				next = v.V(states[t+1])
+			}
+			dr += w * (r + next - v.Q(states[t], a.Gateway))
+
+			attempts++
+			switch {
+			case a.Probs != nil:
+				for g, q := range probs {
+					if a.Probs[g] <= 0 {
+						deficit += q
+					}
+				}
+			case a.Propensity >= 1-1e-9:
+				deficit += 1 - probs[a.Gateway]
+			default:
+				unknown++
+			}
+			if a.Pending() {
+				s.Diag.Pending++
+			}
+		}
+		y := 0.0
+		if p.Paid() {
+			y = 1
+		}
+		weights[i] = w
+		s.Cols["logged"][i] = y
+		s.Cols["first"][i] = first * y
+		s.Cols["ips"][i] = w * y
+		s.Cols["dm"][i] = v.V(states[0])
+		s.Cols["dr"][i] = dr
+	}
+
+	// Self-normalised IPS isn't a mean of per-payment terms, so its column
+	// holds the linearised terms instead: their mean is the estimate and
+	// their spread gives its standard error.
+	sw, swy, sw2 := 0.0, 0.0, 0.0
+	for i, w := range weights {
+		sw += w
+		sw2 += w * w
+		swy += s.Cols["ips"][i]
+		s.Diag.MaxWeight = max(s.Diag.MaxWeight, w)
+	}
+	if sw > 0 {
+		val, wbar := swy/sw, sw/float64(n)
+		for i, w := range weights {
+			s.Cols["snips"][i] = val + (s.Cols["ips"][i]-val*w)/wbar
+		}
+		s.Diag.ESS = sw * sw / sw2
+		s.Diag.MaxShare = s.Diag.MaxWeight / sw
+	}
+	mw := mean(weights)
+	s.Diag.MeanWeight, s.Diag.MeanWeightSE = mw.Value, mw.SE
+	s.Diag.Changed = changed / float64(n)
+	s.Diag.Deficit = deficit / attempts
+	s.Diag.Unknown = unknown / attempts
+	s.Diag.Warnings = warnings(s.Diag, n)
+	return s, nil
+}
