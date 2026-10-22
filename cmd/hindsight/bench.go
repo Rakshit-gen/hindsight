@@ -189,6 +189,57 @@ func (b bench) accuracy() {
 	}
 }
 
+type loggerCase struct {
+	name  string
+	make  func(seed uint64) sim.Logger
+	guess bool
+}
+
+func (b bench) loggers() {
+	fmt.Println("\n## loggers")
+	fmt.Println("\nThe same change, SBI cards to cedar, scored against today's rules on logs from")
+	fmt.Println("different live routers. Estimates are dr; points of paid rate.")
+	fmt.Println()
+	fmt.Println("| logger | its paid rate | true difference | bias | rmse | 95% interval ± | covers truth | effective sample | out of reach |")
+	fmt.Println("|---|---|---|---|---|---|---|---|---|")
+	static := func(eps float64) func(uint64) sim.Logger {
+		return func(uint64) sim.Logger { return sim.Static{Policy: explored("today", eps)} }
+	}
+	thompson := func(seed uint64) sim.Logger {
+		return &sim.Thompson{Floor: 0.05, HalfLife: 2 * time.Hour, Draws: 1000, Seed: seed}
+	}
+	cases := []loggerCase{
+		{"today's rules, no exploring", static(0), false},
+		{"today's rules, 1% explored", static(0.01), false},
+		{"today's rules, 5% explored", static(0.05), false},
+		{"today's rules, 10% explored", static(0.1), false},
+		{"sliding window, 5% explored", func(uint64) sim.Logger { return &sim.Window{Size: 300, Epsilon: 0.05} }, false},
+		{"Thompson, 5% floor, logged propensities", thompson, false},
+	}
+	today, target := examples.Load("today"), examples.Load("sbi-cards-to-cedar")
+	for _, c := range cases {
+		var g tally
+		var mu sync.Mutex
+		var paid, ess, deficit float64
+		b.each(func(seed uint64) {
+			tr := b.play(seed, b.days, c.make(seed), c.guess, horizon)
+			r, err := ope.Evaluate(tr.logged, target, today, ope.Options{})
+			if err != nil {
+				panic(err)
+			}
+			g.add(r.Rows[4].Diff, tr.truth(target)-tr.truth(today))
+			mu.Lock()
+			paid += r.Logged.Value
+			ess += r.Diag.ESS / float64(r.Payments)
+			deficit += r.Diag.Deficit
+			mu.Unlock()
+		})
+		n := float64(b.seeds)
+		fmt.Printf("| %s | %.2f%% | %+.2f | %+.3f | %.3f | %.2f | %.0f%% | %.1f%% | %.2f%% |\n",
+			c.name, 100*paid/n, g.truth(), g.bias(), g.rmse(), g.width(), g.coverage(), 100*ess/n, 100*deficit/n)
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
