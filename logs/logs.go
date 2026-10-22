@@ -53,3 +53,49 @@ type Payment struct {
 
 func (p Payment) Paid() bool   { return p.Attempts[len(p.Attempts)-1].Paid() }
 func (p Payment) Start() int64 { return p.Attempts[0].At }
+
+// Read takes JSON lines or CSV with a header row, whichever the input is.
+func Read(r io.Reader) ([]Attempt, error) {
+	br := bufio.NewReaderSize(r, 1<<16)
+	for {
+		b, err := br.Peek(1)
+		if errors.Is(err, io.EOF) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch b[0] {
+		case ' ', '\t', '\r', '\n':
+			_, _ = br.ReadByte()
+			continue
+		case 0xEF: // byte order mark
+			_, _ = br.Discard(3)
+			continue
+		case '{':
+			return readJSONL(br)
+		}
+		return readCSV(br)
+	}
+}
+
+func readJSONL(r io.Reader) ([]Attempt, error) {
+	var out []Attempt
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 1<<16), 1<<24)
+	for line := 1; sc.Scan(); line++ {
+		text := strings.TrimSpace(sc.Text())
+		if text == "" {
+			continue
+		}
+		var a Attempt
+		if err := json.Unmarshal([]byte(text), &a); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		if err := check(a); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		out = append(out, a)
+	}
+	return out, sc.Err()
+}
