@@ -74,3 +74,17 @@ func TestFirstAttemptMissesRetries(t *testing.T) {
 		t.Errorf("payment-level estimate should see the loss: %v ± %v", d.Value, d.SE)
 	}
 }
+
+func TestDeficit(t *testing.T) {
+	_, _, ls := played(t, 5, examples.Load("today"), 0.3)
+	s, _ := Score(ls, examples.Load("upi-to-alder"), Options{})
+	// UPI first attempts are most attempts, and the logger never left
+	// birch for them.
+	if s.Diag.Deficit < 0.4 || len(s.Diag.Warnings) == 0 {
+		t.Errorf("deficit %v, warnings %v", s.Diag.Deficit, s.Diag.Warnings)
+	}
+	same, _ := Score(ls, examples.Load("today"), Options{})
+	if same.Diag.Deficit != 0 || same.Of("ips").Value != same.Of("logged").Value {
+		t.Errorf("scoring the logger on its own logs should give back what happened")
+	}
+}
