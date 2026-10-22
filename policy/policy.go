@@ -138,3 +138,19 @@ func (t *Table) Probs(s State) map[string]float64 {
 	}
 	return probs
 }
+
+func (t *Table) candidates(s State) []string {
+	if t.Retry == "same" {
+		return s.Eligible
+	}
+	var out []string
+	for _, g := range s.Eligible {
+		if !slices.Contains(s.Tried, g) {
+			out = append(out, g)
+		}
+	}
+	if len(out) == 0 {
+		return s.Eligible
+	}
+	return out
+}
