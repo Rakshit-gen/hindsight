@@ -1,0 +1,5 @@
+/bin/
+/dist/
+/web/hindsight.wasm
+/web/wasm_exec.js
+coverage.txt
