@@ -46,3 +46,11 @@ func TestTable(t *testing.T) {
 		}
 	}
 }
+
+func TestRetrySame(t *testing.T) {
+	tb, _ := Parse([]byte(`{"retry": "same", "rules": [{"order": ["birch", "alder"]}]}`))
+	got := tb.Probs(State{Attempt: 2, Tried: []string{"birch"}, Eligible: []string{"alder", "birch"}})
+	if got["birch"] != 1 {
+		t.Fatalf("retry same should stay on birch, got %v", got)
+	}
+}
