@@ -176,3 +176,23 @@ func (r Rule) matches(s State) bool {
 	}
 	return true
 }
+
+func (r Rule) place(cands []string, probs map[string]float64) bool {
+	for _, g := range r.Order {
+		if slices.Contains(cands, g) {
+			probs[g] = 1
+			return true
+		}
+	}
+	total := 0.0
+	for _, g := range cands {
+		total += r.Split[g]
+	}
+	if total == 0 {
+		return false
+	}
+	for _, g := range cands {
+		probs[g] = r.Split[g] / total
+	}
+	return true
+}
