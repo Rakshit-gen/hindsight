@@ -257,3 +257,39 @@ func checkCmd(args []string) error {
 	}
 	return nil
 }
+
+func planCmd(args []string) error {
+	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
+	var in plan.Inputs
+	fs.Float64Var(&in.PerDay, "per-day", 80_000, "payments a day")
+	fs.Float64Var(&in.Rate, "rate", 0.83, "share of payments paid now")
+	fs.IntVar(&in.Gateways, "gateways", 3, "gateways a payment can go to")
+	fs.Float64Var(&in.Share, "share", 0.04, "share of payments the change sends elsewhere")
+	fs.Float64Var(&in.Lift, "lift", 0.15, "gain in paid rate on those payments, as a fraction")
+	fs.Float64Var(&in.Gap, "gap", 0.03, "how much less likely a randomly routed payment is to get paid")
+	epsList := fs.String("epsilons", "0.01,0.02,0.05,0.1,0.2", "exploration shares to compare")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var eps []float64
+	for _, s := range strings.Split(*epsList, ",") {
+		e, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil || e <= 0 || e > 1 {
+			return fmt.Errorf("bad epsilon %q", s)
+		}
+		eps = append(eps, e)
+	}
+	fmt.Printf("A change moving %.1f%% of %s daily payments, %+.1f points on those: %+.2f points overall.\n\n",
+		100*in.Share, commas(int(in.PerDay)), 100*in.Lift, 100*in.Share*in.Lift)
+	fmt.Printf("%-8s %-10s %14s %14s %8s %14s\n", "epsilon", "explore", "lost a day", "se, 1 day", "days", "lost in all")
+	for _, r := range plan.Table(in, eps) {
+		where := "everywhere"
+		if r.Targeted {
+			where = "where it acts"
+		}
+		fmt.Printf("%-8s %-10s %14.0f %13.2fpt %8.1f %14.0f\n", strconv.FormatFloat(r.Epsilon, 'f', -1, 64), where, r.LostPerDay, 100*r.SEPerDay, r.Days, r.Lost)
+	}
+	fmt.Println("\nDays to detect at 5% significance with 80% power, first attempts only.")
+	fmt.Println("Retries multiply weights, so real logs need at least this long.")
+	return nil
+}
