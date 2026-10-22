@@ -293,3 +293,52 @@ func planCmd(args []string) error {
 	fmt.Println("Retries multiply weights, so real logs need at least this long.")
 	return nil
 }
+
+func simCmd(args []string) error {
+	fs := flag.NewFlagSet("sim", flag.ContinueOnError)
+	kind := fs.String("logger", "static", "static, window or thompson")
+	polPath := fs.String("policy", "", "rules for the static logger; the example 'today' policy if empty")
+	eps := fs.Float64("epsilon", 0.05, "share explored at random")
+	days := fs.Float64("days", 2, "days of traffic")
+	perMinute := fs.Float64("per-minute", 60, "average payments a minute")
+	seed := fs.Uint64("seed", 1, "seed for traffic, the world and the logger")
+	quiet := fs.Bool("no-incident", false, "leave out the outage on the first afternoon")
+	guess := fs.Bool("guess-propensities", false, "replace logged propensities with frequencies, as if the router never logged them")
+	truthPath := fs.String("truth", "", "also print this policy's exact paid rate in the simulated world to stderr")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	var static *policy.Table
+	if *polPath != "" {
+		t, err := policy.Load(*polPath)
+		if err != nil {
+			return err
+		}
+		static = t
+	}
+	lg, err := sim.NewLogger(*kind, *eps, static, *seed)
+	if err != nil {
+		return err
+	}
+	w := &sim.World{Seed: *seed}
+	if !*quiet {
+		w.Incidents = sim.Incidents()
+	}
+	ps := sim.Traffic(*seed, *days, *perMinute)
+	as := sim.Play(w, ps, lg, *seed, sim.Epoch+int64(*days*86_400_000))
+	if *guess {
+		as = sim.Guessed(as)
+	}
+	if *truthPath != "" {
+		t, err := policy.Load(*truthPath)
+		if err != nil {
+			return err
+		}
+		v := 0.0
+		for _, x := range w.Truth(ps, t) {
+			v += x
+		}
+		fmt.Fprintf(os.Stderr, "%s pays %.2f%% of these payments in this world\n", t.Name, 100*v/float64(len(ps)))
+	}
+	return logs.Write(os.Stdout, as)
+}
