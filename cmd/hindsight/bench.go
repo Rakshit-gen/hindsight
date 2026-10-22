@@ -321,6 +321,44 @@ func (b bench) budget() {
 	}
 }
 
+func (b bench) paired() {
+	fmt.Println("\n## paired")
+	fmt.Println("\nTwo policies scored on the same logs share most of their luck. The paired")
+	fmt.Println("interval is from per-payment differences; the separate one combines two")
+	fmt.Println("intervals as if they were independent. Logger explores 10%; dr; points.")
+	fmt.Println()
+	fmt.Println("| comparison | true difference | paired ± | separate ± | paired finds it | separate finds it |")
+	fmt.Println("|---|---|---|---|---|---|")
+	pairs := [][2]string{{"sbi-cards-to-cedar", "today"}, {"retry-same-gateway", "today"}, {"upi-to-alder", "retry-same-gateway"}}
+	for _, pr := range pairs {
+		a, c := examples.Load(pr[0]), examples.Load(pr[1])
+		var mu sync.Mutex
+		var truth, paired, separate float64
+		var pairedHit, sepHit int
+		b.each(func(seed uint64) {
+			tr := b.play(seed, b.days, sim.Static{Policy: explored("today", 0.1)}, false, horizon)
+			sa, _ := ope.Score(tr.logged, a, ope.Options{})
+			sc, _ := ope.Score(tr.logged, c, ope.Options{})
+			d := ope.Diff(sa.Cols["dr"], sc.Cols["dr"])
+			ea, ec := sa.Of("dr"), sc.Of("dr")
+			sep := 1.96 * math.Hypot(ea.SE, ec.SE)
+			mu.Lock()
+			truth += tr.truth(a) - tr.truth(c)
+			paired += 1.96 * d.SE
+			separate += sep
+			if math.Abs(d.Value) > 1.96*d.SE {
+				pairedHit++
+			}
+			if math.Abs(ea.Value-ec.Value) > sep {
+				sepHit++
+			}
+			mu.Unlock()
+		})
+		n := float64(b.seeds)
+		fmt.Printf("| %s vs %s | %+.2f | %.2f | %.2f | %d of %d | %d of %d |\n", pr[0], pr[1], 100*truth/n, 100*paired/n, 100*separate/n, pairedHit, b.seeds, sepHit, b.seeds)
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
