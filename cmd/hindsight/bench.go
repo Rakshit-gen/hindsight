@@ -240,6 +240,37 @@ func (b bench) loggers() {
 	}
 }
 
+func (b bench) propensities() {
+	fmt.Println("\n## propensities")
+	fmt.Println("\nToday's rules send all UPI to birch. Scored on logs from routers that moved UPI")
+	fmt.Println("off birch during the outage, with the propensities they logged and with ones")
+	fmt.Println("guessed afterwards from how often each gateway was picked. dr; points.")
+	fmt.Println()
+	fmt.Println("| logger | propensities | true paid rate | mean estimate | bias | rmse | covers truth |")
+	fmt.Println("|---|---|---|---|---|---|---|")
+	today := examples.Load("today")
+	for _, kind := range []string{"window", "thompson"} {
+		for _, guess := range []bool{false, true} {
+			var g tally
+			b.each(func(seed uint64) {
+				lg, _ := sim.NewLogger(kind, 0.05, nil, seed)
+				tr := b.play(seed, b.days, lg, guess, horizon)
+				s, err := ope.Score(tr.logged, today, ope.Options{})
+				if err != nil {
+					panic(err)
+				}
+				g.add(s.Of("dr"), tr.truth(today))
+			})
+			how := "logged"
+			if guess {
+				how = "guessed later"
+			}
+			name := map[string]string{"window": "sliding window, 5% explored", "thompson": "Thompson, 5% floor"}[kind]
+			fmt.Printf("| %s | %s | %.2f%% | %.2f%% | %+.3f | %.3f | %.0f%% |\n", name, how, g.truth(), g.mean(), g.bias(), g.rmse(), g.coverage())
+		}
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
