@@ -85,3 +85,53 @@ func readLogs(path string) ([]logs.Payment, error) {
 	}
 	return logs.Group(as)
 }
+
+func evalCmd(args []string) error {
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	logPath := fs.String("logs", "-", "decision logs, JSON lines or CSV; - for stdin")
+	polPath := fs.String("policy", "", "the policy to score (required)")
+	basePath := fs.String("baseline", "", "compare with this policy instead of with what the logs did")
+	horizon := fs.Duration("horizon", 0, "leave out payments that started this close to the end of the logs, so their retries and late outcomes are in")
+	clip := fs.Float64("clip", 0, "cap each payment's weight at this; 0 for no cap")
+	asJSON := fs.Bool("json", false, "print the report as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *polPath == "" {
+		return errors.New("eval needs --policy")
+	}
+	target, err := policy.Load(*polPath)
+	if err != nil {
+		return err
+	}
+	var baseline policy.Policy
+	baseName := "what the logs did"
+	if *basePath != "" {
+		b, err := policy.Load(*basePath)
+		if err != nil {
+			return err
+		}
+		baseline, baseName = b, b.Name
+	}
+	ps, err := readLogs(*logPath)
+	if err != nil {
+		return err
+	}
+	ps, dropped := ope.Settled(ps, *horizon)
+	r, err := ope.Evaluate(ps, target, baseline, ope.Options{Clip: *clip})
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(struct {
+			Target   string `json:"target"`
+			Baseline string `json:"baseline"`
+			Dropped  int    `json:"dropped"`
+			*ope.Report
+		}{target.Name, baseName, dropped, r})
+	}
+	printReport(os.Stdout, target.Name, baseName, dropped, r)
+	return nil
+}
