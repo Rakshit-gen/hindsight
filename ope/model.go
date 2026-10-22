@@ -113,3 +113,54 @@ func pickKeys(ps []logs.Payment) []string {
 	})
 	return keys
 }
+
+// valuer gives the model's value of a state under one target policy:
+// V(s) is the chance the payment ends up paid from here, Q(s, g) the same
+// after sending this attempt to g.
+type valuer struct {
+	m    *model
+	pol  policy.Policy
+	memo map[string]float64
+}
+
+func (v *valuer) V(s policy.State) float64 {
+	if s.Attempt > v.m.last {
+		return 0
+	}
+	key := stateKey(s)
+	if x, ok := v.memo[key]; ok {
+		return x
+	}
+	x := 0.0
+	for g, p := range v.pol.Probs(s) {
+		if p > 0 {
+			x += p * v.Q(s, g)
+		}
+	}
+	v.memo[key] = x
+	return x
+}
+
+func (v *valuer) Q(s policy.State, g string) float64 {
+	p := v.m.est(v.m.succ, g+"|"+bucket(s.Attempt)+"|", s.Context)
+	if s.Attempt >= v.m.last {
+		return p
+	}
+	c := v.m.est(v.m.cont, strconv.Itoa(s.Attempt)+"|", s.Context)
+	next := policy.State{Context: s.Context, Attempt: s.Attempt + 1, Tried: append(s.Tried[:len(s.Tried):len(s.Tried)], g), Eligible: s.Eligible}
+	return p + (1-p)*c*v.V(next)
+}
+
+func stateKey(s policy.State) string {
+	keys := make([]string, 0, len(s.Context))
+	for k := range s.Context {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "=" + s.Context[k] + ",")
+	}
+	b.WriteString("#" + strings.Join(s.Eligible, ",") + "#" + strconv.Itoa(s.Attempt) + "#" + strings.Join(s.Tried, ","))
+	return b.String()
+}
