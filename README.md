@@ -176,6 +176,40 @@ A router that never logged propensities can have them rebuilt from how often it 
 
 Guessed propensities average over the day, so birch payments during the outage, when the router hardly used birch, get far too little weight, and the outage drops out of the estimate. For the window router that's 1.2 points too high, with intervals that cover the truth 30% of the time. For Thompson the bias is smaller, but the intervals still cover the truth only 65% of the time. For the SBI change the guess made little difference, because routing for cards didn't move with outcomes. Guessed propensities go wrong exactly when the router's choices follow its outcomes, which is the reason to have an adaptive router.
 
+### What exploring costs
+
+| explored | lost a day | planner se | ips se | dr se | days to detect, planner | days to detect, dr |
+|---|---|---|---|---|---|---|
+| 2% | 7 | 0.78 | 0.67 | 0.35 | 108.1 | 21.3 |
+| 5% | 17 | 0.49 | 0.52 | 0.16 | 43.4 | 4.3 |
+| 10% | 35 | 0.35 | 0.30 | 0.18 | 22.3 | 5.8 |
+| 20% | 71 | 0.27 | 0.23 | 0.07 | 13.0 | 1.0 |
+
+Lost is payments a day not paid because of exploring, from exact values on a day without the outage. The standard errors are for one day of logs, in points; the measured ones are the spread over 20 logs, so they're rough (the 5% and 10% `dr` rows are within noise of each other). The planner's arithmetic matches the spread of `ips`. `dr` needs a fraction of the days, because the outcome model soaks up most of the variance that isn't about the change. Detecting a 0.21-point change on 77,000 payments a day takes days to weeks whichever way you do it, and costs tens of payments a day.
+
+### Paired intervals
+
+| comparison | true difference | paired ± | separate ± | paired finds it | separate finds it |
+|---|---|---|---|---|---|
+| sbi-cards-to-cedar vs today | +0.21 | 0.26 | 0.45 | 10 of 20 | 0 of 20 |
+| retry-same-gateway vs today | -2.28 | 2.25 | 2.29 | 13 of 20 | 13 of 20 |
+| upi-to-alder vs retry-same-gateway | +3.27 | 2.56 | 2.57 | 17 of 20 | 17 of 20 |
+
+Two estimates from the same logs aren't independent, so putting their separate intervals side by side overstates the uncertainty about their difference. For a change that touches a few payments the paired interval is under 60% as wide and finds a gain the separate ones never do. For changes that touch most payments the two policies share little, and pairing doesn't help.
+
+### Late outcomes
+
+| log length | horizon | payments left out | pending counted as failed | logger's own bias | dr bias | dr covers truth |
+|---|---|---|---|---|---|---|
+| 1 hours | none | 0.00% | 30 | -1.459 | -1.355 | 75% |
+| 1 hours | 15 minutes | 24.14% | 0 | +0.066 | +0.100 | 90% |
+| 6 hours | none | 0.00% | 31 | -0.296 | -0.298 | 100% |
+| 6 hours | 15 minutes | 4.76% | 0 | -0.035 | -0.037 | 95% |
+| 24 hours | none | 0.00% | 32 | -0.014 | -0.013 | 95% |
+| 24 hours | 15 minutes | 0.68% | 0 | +0.024 | +0.024 | 90% |
+
+The end of every log is unfinished: about 30 attempts still pending, and retries that haven't happened yet. On a day of logs that's noise. On an hour it's 1.5 points, more than most routing changes are worth, and it hits the dashboard's own paid rate as much as any estimate. Leaving out payments that started in the last 15 minutes removes it. Choose a horizon longer than your slowest late outcome plus your retry window.
+
 ## License
 
 MIT
