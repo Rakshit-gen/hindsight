@@ -205,3 +205,38 @@ func warnings(d Diagnostics, n int) []string {
 	}
 	return out
 }
+
+// Estimate is a mean with its standard error.
+type Estimate struct {
+	Value float64 `json:"value"`
+	SE    float64 `json:"se"`
+}
+
+// CI is the 95% normal interval.
+func (e Estimate) CI() (lo, hi float64) { return e.Value - 1.96*e.SE, e.Value + 1.96*e.SE }
+
+func mean(xs []float64) Estimate {
+	n := float64(len(xs))
+	s, s2 := 0.0, 0.0
+	for _, x := range xs {
+		s += x
+		s2 += x * x
+	}
+	m := s / n
+	v := (s2/n - m*m) * n / max(n-1, 1)
+	return Estimate{m, math.Sqrt(max(v, 0) / n)}
+}
+
+// Of returns one estimator's estimate.
+func (s *Scores) Of(name string) Estimate { return mean(s.Cols[name]) }
+
+// Diff estimates a minus b payment by payment. Both ran on the same
+// payments, so the luck they share cancels, and the interval is much
+// narrower than two separate intervals suggest.
+func Diff(a, b []float64) Estimate {
+	d := make([]float64, len(a))
+	for i := range a {
+		d[i] = a[i] - b[i]
+	}
+	return mean(d)
+}
