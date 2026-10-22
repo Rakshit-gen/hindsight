@@ -198,3 +198,23 @@ func parseTime(v string) (int64, error) {
 	}
 	return t.UnixMilli(), nil
 }
+
+func check(a Attempt) error {
+	switch {
+	case a.Payment == "":
+		return errors.New("no payment id")
+	case a.Attempt < 1:
+		return fmt.Errorf("payment %s: attempt is %d, should start at 1", a.Payment, a.Attempt)
+	case a.Gateway == "":
+		return fmt.Errorf("payment %s: no gateway", a.Payment)
+	case len(a.Eligible) == 0:
+		return fmt.Errorf("payment %s: no eligible gateways; a policy can't be scored without them", a.Payment)
+	case !slices.Contains(a.Eligible, a.Gateway):
+		return fmt.Errorf("payment %s: chose %s, which isn't in eligible %v", a.Payment, a.Gateway, a.Eligible)
+	case !(a.Propensity > 0 && a.Propensity <= 1):
+		return fmt.Errorf("payment %s: propensity %v should be above 0 and at most 1", a.Payment, a.Propensity)
+	case a.Outcome == "":
+		return fmt.Errorf("payment %s: no outcome", a.Payment)
+	}
+	return nil
+}
