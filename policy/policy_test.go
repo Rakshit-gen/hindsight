@@ -54,3 +54,18 @@ func TestRetrySame(t *testing.T) {
 		t.Fatalf("retry same should stay on birch, got %v", got)
 	}
 }
+
+func TestParseErrors(t *testing.T) {
+	for _, bad := range []string{
+		`{"rules": []}`,
+		`{"epsilon": 2, "rules": [{"order": ["a"]}]}`,
+		`{"retry": "other", "rules": [{"order": ["a"]}]}`,
+		`{"rules": [{"order": ["a"], "split": {"a": 1}}]}`,
+		`{"rules": [{"split": {"a": -1}}]}`,
+		`{"rules": [{"ordr": ["a"]}]}`,
+	} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Errorf("%s: expected an error", bad)
+		}
+	}
+}
