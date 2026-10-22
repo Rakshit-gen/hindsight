@@ -240,3 +240,23 @@ func Diff(a, b []float64) Estimate {
 	}
 	return mean(d)
 }
+
+// Settled keeps payments that started at least horizon before the newest
+// record in the logs, so their retries and late outcomes have landed.
+// Leaving out recent payments by start time doesn't bias the estimate;
+// counting their unknown outcomes as failures does.
+func Settled(ps []logs.Payment, horizon time.Duration) (kept []logs.Payment, dropped int) {
+	var newest int64
+	for _, p := range ps {
+		for _, a := range p.Attempts {
+			newest = max(newest, a.At, a.SettledAt)
+		}
+	}
+	cut := newest - horizon.Milliseconds()
+	for _, p := range ps {
+		if p.Start() <= cut {
+			kept = append(kept, p)
+		}
+	}
+	return kept, len(ps) - len(kept)
+}
