@@ -210,6 +210,29 @@ Two estimates from the same logs aren't independent, so putting their separate i
 
 The end of every log is unfinished: about 30 attempts still pending, and retries that haven't happened yet. On a day of logs that's noise. On an hour it's 1.5 points, more than most routing changes are worth, and it hits the dashboard's own paid rate as much as any estimate. Leaving out payments that started in the last 15 minutes removes it. Choose a horizon longer than your slowest late outcome plus your retry window.
 
+## In the browser
+
+`web/` is a static page that runs the same Go code compiled to WebAssembly. Paste or choose a log file and two policies, or load a simulated day, and it scores them without sending anything anywhere. It also has the planner. To run it locally:
+
+```sh
+make serve   # builds web/hindsight.wasm and serves web/ on :8000
+```
+
+## Limits
+
+- **Policies have to be stateless.** A rule table is a function of the payment and its attempts so far. A proposed router that learns as it goes changes its own future inputs, and scoring it needs replay methods this doesn't have.
+- **Big changes need a lot of exploration.** Each attempt where the target goes somewhere the logger rarely goes multiplies the weight by up to the inverse of that propensity. Changes that move most of your traffic, or that change several attempts per payment, need exploring on that scale or many days of logs. The diagnostics say when the estimate rests on a few payments.
+- **Intervals are too narrow when weights are heavy.** When the effective sample size falls to a few percent of payments, the normal interval undercovers. hindsight warns below 5%.
+- **The estimate is for the period the logs cover.** A change scored over a day with an outage answers what it would have done that day.
+- **The planner is first attempts only**, and assumes uniform exploration and a fixed target rule.
+- **Customers react to routing in ways logs can't show**, like a slower gateway making more of them give up. Those effects are only in the logs to the extent the logger's own random choices exposed them.
+
+## Related
+
+- Adyen, [Off-policy Evaluation for Payments at Adyen](https://arxiv.org/abs/2501.10470), and [contextual bandits for authorisation](https://arxiv.org/abs/2412.00569). Their decisions are authorisation interventions rather than gateway choice; the estimators carry over.
+- Juspay, [success rate based routing with non-stationary bandits](https://arxiv.org/abs/2308.01028), and their open-source [decision engine](https://github.com/juspay/decision-engine). Juspay's offline evaluation replayed empirical success rates rather than weighting by propensities.
+- [Δ-OPE](https://arxiv.org/abs/2405.10024) on estimating differences between policies directly, which is what the paired intervals here do in the simplest way.
+
 ## License
 
 MIT
