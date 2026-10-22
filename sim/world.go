@@ -121,3 +121,37 @@ func (w *World) Rate(g string, p Payment, at int64) float64 {
 	}
 	return min(r, 0.995)
 }
+
+// Traffic is Poisson arrivals over some days, busiest mid-afternoon.
+func Traffic(seed uint64, days float64, perMinute float64) []Payment {
+	rng := rand.New(rand.NewPCG(seed, 11))
+	bankW := make([]float64, len(banks))
+	for r := range bankW {
+		bankW[r] = 1 / math.Pow(float64(r+1), 0.9)
+	}
+	var out []Payment
+	end := days * 86_400_000
+	for t, i := 0.0, uint64(0); ; i++ {
+		hour := math.Mod(t/3_600_000, 24)
+		rate := perMinute * (0.9 + 0.45*math.Sin((hour-9)/24*2*math.Pi))
+		t += rng.ExpFloat64() / rate * 60_000
+		if t >= end {
+			return out
+		}
+		out = append(out, Payment{I: i, At: Epoch + int64(t), Method: methods[pick(rng.Float64(), methodWeight)], Issuer: banks[pick(rng.Float64(), bankW)]})
+	}
+}
+
+func pick(u float64, w []float64) int {
+	total := 0.0
+	for _, x := range w {
+		total += x
+	}
+	u *= total
+	for i, x := range w {
+		if u -= x; u <= 0 {
+			return i
+		}
+	}
+	return len(w) - 1
+}
