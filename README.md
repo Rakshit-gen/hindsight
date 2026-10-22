@@ -94,6 +94,22 @@ The first rule whose `when` matches and that can place the payment does. `order`
 
 The examples in [`examples/`](examples) are written for the simulated world below.
 
+## Estimators
+
+For payment *i* with attempts *t* = 1…*T*, logged propensities μ and target probabilities π, the weight is *w* = ∏ π(*a_t*)/μ(*a_t*) and *y* is 1 if the payment got paid.
+
+| | |
+|---|---|
+| `first` | *w* from the first attempt only, times *y*: what you get if you treat attempts as independent decisions |
+| `ips` | *w* · *y* |
+| `snips` | Σ *w y* / Σ *w*, self-normalised |
+| `dm` | an outcome model alone: the chance each attempt pays by gateway, first try or retry, and context, each finer level shrunk toward the one above, plus the chance a failed payment is tried again |
+| `dr` | sequential doubly robust ([Jiang and Li](https://arxiv.org/abs/1511.03722)): the model's value, corrected attempt by attempt with the running weight |
+
+The model in `dm` and `dr` is cross-fitted: each half of the payments is valued by a model fitted on the other half. Intervals are normal, from the per-payment terms; for `snips` from its linearisation. Differences between two policies, or between a policy and the logs, use per-payment differences of the same terms.
+
+The model knows nothing about time, outages or why an attempt failed, which is how a model fitted to real logs turns out too. `dr` corrects what it gets wrong; `dm` doesn't, and its interval only reflects how payments vary, not how wrong the model is, so it's too narrow. Read `dr` and `snips`.
+
 ## License
 
 MIT
