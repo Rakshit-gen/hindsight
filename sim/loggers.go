@@ -181,3 +181,33 @@ func gammaSample(rng *rand.Rand, shape float64) float64 {
 		}
 	}
 }
+
+// Guessed replaces each logged propensity with how often the logger picked
+// that gateway for payments like it across the whole log. It's what a team
+// does when the router never logged propensities, and it's wrong whenever
+// the router changed its mind over the period.
+func Guessed(as []logs.Attempt) []logs.Attempt {
+	key := func(a logs.Attempt, tried string) string {
+		return a.Context["method"] + "|" + a.Context["issuer"] + "|" + tried
+	}
+	triedOf := make([]string, len(as))
+	seen := map[string][]string{}
+	for i, a := range as {
+		triedOf[i] = strings.Join(seen[a.Payment], ",")
+		seen[a.Payment] = append(seen[a.Payment], a.Gateway)
+	}
+	count := map[string]float64{}
+	for i, a := range as {
+		k := key(a, triedOf[i])
+		count[k]++
+		count[k+"|"+a.Gateway]++
+	}
+	out := make([]logs.Attempt, len(as))
+	for i, a := range as {
+		k := key(a, triedOf[i])
+		a.Propensity = count[k+"|"+a.Gateway] / count[k]
+		a.Probs = nil
+		out[i] = a
+	}
+	return out
+}
