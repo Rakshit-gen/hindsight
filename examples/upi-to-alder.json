@@ -1,0 +1,8 @@
+{
+  "name": "upi-to-alder",
+  "rules": [
+    {"when": {"method": "card"}, "order": ["birch", "cedar", "alder"]},
+    {"when": {"method": "upi"}, "order": ["alder", "birch", "cedar"]},
+    {"when": {"method": "netbanking"}, "order": ["cedar", "alder"]}
+  ]
+}

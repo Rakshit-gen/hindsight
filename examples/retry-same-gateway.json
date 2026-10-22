@@ -1,0 +1,9 @@
+{
+  "name": "retry-same-gateway",
+  "retry": "same",
+  "rules": [
+    {"when": {"method": "card"}, "order": ["birch", "cedar", "alder"]},
+    {"when": {"method": "upi"}, "order": ["birch", "alder", "cedar"]},
+    {"when": {"method": "netbanking"}, "order": ["cedar", "alder"]}
+  ]
+}

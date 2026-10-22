@@ -1,0 +1,9 @@
+{
+  "name": "sbi-cards-to-cedar",
+  "rules": [
+    {"when": {"method": "card", "issuer": "sbin"}, "order": ["cedar", "birch", "alder"]},
+    {"when": {"method": "card"}, "order": ["birch", "cedar", "alder"]},
+    {"when": {"method": "upi"}, "order": ["birch", "alder", "cedar"]},
+    {"when": {"method": "netbanking"}, "order": ["cedar", "alder"]}
+  ]
+}
