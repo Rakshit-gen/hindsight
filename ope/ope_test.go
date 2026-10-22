@@ -88,3 +88,14 @@ func TestDeficit(t *testing.T) {
 		t.Errorf("scoring the logger on its own logs should give back what happened")
 	}
 }
+
+func TestSettled(t *testing.T) {
+	at := func(id string, start int64) logs.Payment {
+		return logs.Payment{ID: id, Attempts: []logs.Attempt{{At: start}}}
+	}
+	ps := []logs.Payment{at("a", 0), at("b", 50_000), at("c", 100_000)}
+	kept, dropped := Settled(ps, time.Minute)
+	if len(kept) != 1 || dropped != 2 {
+		t.Errorf("kept %v, dropped %d", kept, dropped)
+	}
+}
