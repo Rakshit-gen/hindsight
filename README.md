@@ -146,6 +146,36 @@ Logger: today's rules, 10% explored. Points of paid rate.
 - The outcome model alone is confident and wrong: its intervals are a hundredth of a point wide and never cover the truth. On the retry change it sees a third of the loss, because it doesn't know a gateway that errored on a payment tends to error again.
 - `snips` and `dr` have about half the error of plain `ips` and cover the truth at about the rate they should. Even so, after one day at 10% exploration each interval is about as wide as the effect it measures, which is what the planner below is for.
 
+### What the logs came from
+
+The SBI change scored by `dr` on logs from different live routers.
+
+| logger | its paid rate | true difference | bias | rmse | 95% interval ± | covers truth | effective sample | out of reach |
+|---|---|---|---|---|---|---|---|---|
+| today's rules, no exploring | 83.90% | +0.21 | -0.098 | 0.107 | 0.05 | 10% | 96.2% | 3.31% |
+| today's rules, 1% explored | 83.90% | +0.21 | +0.116 | 0.321 | 0.61 | 70% | 9.1% | 0.00% |
+| today's rules, 5% explored | 83.91% | +0.21 | -0.035 | 0.156 | 0.37 | 100% | 30.9% | 0.00% |
+| today's rules, 10% explored | 83.92% | +0.21 | +0.000 | 0.171 | 0.26 | 95% | 46.5% | 0.00% |
+| sliding window, 5% explored | 85.35% | +0.21 | +0.163 | 0.339 | 0.48 | 100% | 1.4% | 0.00% |
+| Thompson, 5% floor, logged propensities | 84.94% | +0.21 | -0.093 | 0.141 | 0.34 | 100% | 2.5% | 0.00% |
+
+- A router that never explores can't score a change at all. The estimate looks precise and covers the truth 1 time in 10, and the only sign is the 3.31% of the change's choices that fall out of the logs' reach, which `eval` warns about.
+- At 1% exploration the interval covers the truth only 70% of the time. Weights are up to 300 per attempt there, and normal intervals undercover when a few payments carry the estimate.
+- The adaptive routers pay more because they move traffic off birch during the outage (on one simulated day, today's rules pay 84.01% with the outage and 85.55% without it). Their logs still score the change, with wider intervals: their exploration is spread over whichever gateway is out of favour at the time, so the effective sample is 1 to 3% of payments.
+
+### Logged against guessed propensities
+
+A router that never logged propensities can have them rebuilt from how often it picked each gateway for payments like this one. Today's rules send all UPI to birch. Scoring them on logs from routers that moved UPI off birch during the outage:
+
+| logger | propensities | true paid rate | mean estimate | bias | rmse | covers truth |
+|---|---|---|---|---|---|---|
+| sliding window, 5% explored | logged | 83.87% | 83.99% | +0.117 | 1.174 | 95% |
+| sliding window, 5% explored | guessed later | 83.87% | 85.11% | +1.238 | 1.319 | 30% |
+| Thompson, 5% floor | logged | 83.87% | 84.12% | +0.245 | 1.416 | 95% |
+| Thompson, 5% floor | guessed later | 83.87% | 84.17% | +0.301 | 0.639 | 65% |
+
+Guessed propensities average over the day, so birch payments during the outage, when the router hardly used birch, get far too little weight, and the outage drops out of the estimate. For the window router that's 1.2 points too high, with intervals that cover the truth 30% of the time. For Thompson the bias is smaller, but the intervals still cover the truth only 65% of the time. For the SBI change the guess made little difference, because routing for cards didn't move with outcomes. Guessed propensities go wrong exactly when the router's choices follow its outcomes, which is the reason to have an adaptive router.
+
 ## License
 
 MIT
