@@ -271,6 +271,56 @@ func (b bench) propensities() {
 	}
 }
 
+func (b bench) budget() {
+	fmt.Println("\n## budget")
+	fmt.Println("\nWhat exploring costs and buys, for SBI cards to cedar against today's rules.")
+	fmt.Println("Lost is payments a day not paid because of exploring, from the exact values")
+	fmt.Println("on the same payments without the outage.")
+	fmt.Println("The planner's standard error assumes first attempts only; the measured ones")
+	fmt.Println("are the spread of estimates across logs.")
+	fmt.Println()
+	fmt.Println("| explored | lost a day | planner se | ips se | dr se | days to detect, planner | days to detect, dr |")
+	fmt.Println("|---|---|---|---|---|---|---|")
+	today, target := examples.Load("today"), examples.Load("sbi-cards-to-cedar")
+	for _, eps := range []float64{0.02, 0.05, 0.1, 0.2} {
+		var mu sync.Mutex
+		var ips, dr, perDay, rate, share, lift, lost []float64
+		b.each(func(seed uint64) {
+			tr := b.play(seed, b.days, sim.Static{Policy: explored("today", eps)}, false, horizon)
+			r, err := ope.Evaluate(tr.logged, target, today, ope.Options{})
+			if err != nil {
+				panic(err)
+			}
+			moved := 0.0
+			for _, p := range tr.logged {
+				c := p.Attempts[0].Context
+				if c["method"] == "card" && c["issuer"] == "sbin" {
+					moved++
+				}
+			}
+			n := float64(len(tr.logged))
+			diff := tr.truth(target) - tr.truth(today)
+			mu.Lock()
+			ips = append(ips, r.Rows[1].Diff.Value)
+			dr = append(dr, r.Rows[4].Diff.Value)
+			perDay = append(perDay, n/b.days)
+			rate = append(rate, r.Logged.Value)
+			share = append(share, moved/n)
+			lift = append(lift, diff/(moved/n))
+			quiet := trial{&sim.World{Seed: seed}, tr.ps, tr.logged}
+			lost = append(lost, (quiet.truth(today)-quiet.truth(explored("today", eps)))*n/b.days)
+			mu.Unlock()
+		})
+		in := plan.Inputs{PerDay: avg(perDay), Rate: avg(rate), Gateways: 3, Share: avg(share), Lift: avg(lift)}
+		row := plan.Table(in, []float64{eps})[0]
+		// Measured spread over b.days of logs, scaled to one day.
+		ipsSE, drSE := sd(ips)*math.Sqrt(b.days), sd(dr)*math.Sqrt(b.days)
+		effect := in.Share * in.Lift
+		fmt.Printf("| %.0f%% | %.0f | %.2f | %.2f | %.2f | %.1f | %.1f |\n", 100*eps, avg(lost), 100*row.SEPerDay, 100*ipsSE, 100*drSE,
+			row.Days, math.Pow(2.801585*drSE/effect, 2))
+	}
+}
+
 func avg(xs []float64) float64 {
 	s := 0.0
 	for _, x := range xs {
