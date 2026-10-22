@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hindsight</title>
+<meta name="description" content="Score a payment routing policy on logs another policy routed, in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b675f; --line: #dcd8cf; --field: #ffffff;
+  --accent: #1f5f8b; --bad: #a3361f; --good: #2f6b2f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161514; --fg: #e9e6df; --muted: #9b968c; --line: #34322e; --field: #1e1d1b;
+    --accent: #7db4dc; --bad: #e5826b; --good: #8cc58c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161514; --fg: #e9e6df; --muted: #9b968c; --line: #34322e; --field: #1e1d1b;
+  --accent: #7db4dc; --bad: #e5826b; --good: #8cc58c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 "IBM Plex Sans", system-ui, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 40px 0 8px; border-top: 1px solid var(--line); padding-top: 24px; }
+p { margin: 0 0 12px; max-width: 68ch; }
+.muted { color: var(--muted); }
+label { display: block; font-weight: 600; margin: 16px 0 4px; }
+textarea, input { width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 8px; font: 13px/1.4 "IBM Plex Mono", monospace; }
+textarea { min-height: 150px; resize: vertical; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+@media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+button { font: 600 15px "IBM Plex Sans", sans-serif; padding: 8px 16px; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer; }
+button.plain { background: transparent; color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.table { overflow-x: auto; }
+table { border-collapse: collapse; margin-top: 12px; font: 14px "IBM Plex Mono", monospace; }
+th, td { text-align: right; padding: 4px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th { font-weight: 600; }
+.warn { color: var(--bad); }
+.small input { width: 9em; }
+.small { display: flex; flex-wrap: wrap; gap: 0 16px; }
+#status { min-height: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+<h1>hindsight</h1>
+<p>Score a routing policy on payments another policy routed, before anyone turns it on. Everything runs in this page; the logs never leave your browser.</p>
+<p class="muted">Logs are one record per attempt with the propensity the router had of its choice, as JSON lines or CSV. The format is in the <a href="https://github.com/Rakshit-gen/hindsight#logs">README</a>.</p>
+
+<h2>Evaluate</h2>
+<div class="row">
+  <button class="plain" id="sample" disabled>Load a simulated day</button>
+  <span class="muted">or choose a file:</span>
+  <input type="file" id="file" accept=".jsonl,.json,.csv,.txt" style="width:auto;border:0;padding:0">
+</div>
+<label for="logs">Logs</label>
+<textarea id="logs" spellcheck="false" placeholder='{"payment":"p1","attempt":1,"at":1767571200000,"context":{"method":"card"},"eligible":["alder","birch"],"gateway":"birch","propensity":0.95,"outcome":"success"}'></textarea>
+<div class="cols">
+  <div>
+    <label for="policy">Policy to score</label>
+    <textarea id="policy" spellcheck="false"></textarea>
+  </div>
+  <div>
+    <label for="baseline">Compare with (empty: what the logs did)</label>
+    <textarea id="baseline" spellcheck="false"></textarea>
+  </div>
+</div>
+<div class="small">
+  <div><label for="horizon">Leave out the last, minutes</label><input id="horizon" type="number" min="0" value="15"></div>
+</div>
+<div class="row"><button id="run" disabled>Score it</button><span id="status" class="muted">Loading…</span></div>
+<div id="result"></div>
+
+<h2>Plan exploration</h2>
+<p>How many payments exploring costs, and how many days of logs it takes to see a change. First attempts only, so treat the days as a floor.</p>
+<div class="small">
+  <div><label for="perDay">Payments a day</label><input id="perDay" type="number" value="80000"></div>
+  <div><label for="rate">Paid rate</label><input id="rate" type="number" step="0.01" value="0.83"></div>
+  <div><label for="gateways">Gateways</label><input id="gateways" type="number" value="3"></div>
+  <div><label for="share">Share moved</label><input id="share" type="number" step="0.01" value="0.04"></div>
+  <div><label for="lift">Gain on those</label><input id="lift" type="number" step="0.01" value="0.15"></div>
+  <div><label for="gap">Cost of a random route</label><input id="gap" type="number" step="0.01" value="0.03"></div>
+</div>
+<div class="row"><button id="planBtn" disabled>Work it out</button></div>
+<div id="plan"></div>
+</main>
+<script src="wasm_exec.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const pct = (x) => (100 * x).toFixed(2);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+const go = new Go();
+WebAssembly.instantiateStreaming(fetch("hindsight.wasm"), go.importObject).then((r) => {
+  go.run(r.instance);
+  for (const id of ["run", "sample", "planBtn"]) $(id).disabled = false;
+  $("status").textContent = "";
+}).catch((e) => { $("status").textContent = "Couldn't load: " + e.message; });
+
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (f) $("logs").value = await f.text();
+});
+
+$("sample").addEventListener("click", () => {
+  $("status").textContent = "Simulating…";
+  setTimeout(() => {
+    const s = hindsight.sample(24, 0.1, Math.floor(Math.random() * 1000));
+    if (s.error) { $("status").textContent = s.error; return; }
+    $("logs").value = s.logs;
+    $("policy").value = s.policies["sbi-cards-to-cedar"];
+    $("baseline").value = s.policies["today"];
+    $("status").textContent = "A simulated day from an invented world, logged by today's rules exploring 10%.";
+  }, 10);
+});
+
+$("run").addEventListener("click", () => {
+  $("status").textContent = "Scoring…";
+  setTimeout(() => {
+    const t0 = performance.now();
+    const r = hindsight.evaluate($("logs").value, $("policy").value, $("baseline").value, Number($("horizon").value) || 0);
+    if (r.error) { $("status").textContent = ""; $("result").innerHTML = `<p class="warn">${esc(r.error)}</p>`; return; }
+    $("status").textContent = `Scored in ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
+    render(r);
+  }, 10);
+});
+
+function render(r) {
+  const d = r.diagnostics;
+  const vs = $("baseline").value.trim() ? "the baseline" : "what happened";
+  let h = `<p>${r.payments.toLocaleString()} payments${r.dropped ? `, ${r.dropped.toLocaleString()} too recent and left out` : ""}. Logged paid rate ${pct(r.logged.value)}%.</p>`;
+  h += `<div class="table"><table><tr><th>estimator</th><th>paid %</th><th>±</th><th>vs ${vs}, pts</th><th>±</th></tr>`;
+  for (const row of r.rows) {
+    h += `<tr><td>${row.name}</td><td>${pct(row.value)}</td><td>${pct(1.96 * row.se)}</td><td>${(100 * row.diff.value >= 0 ? "+" : "") + pct(row.diff.value)}</td><td>${pct(1.96 * row.diff.se)}</td></tr>`;
+  }
+  h += `</table></div><p class="muted">± is a 95% interval. Read dr and snips: first ignores retries, and dm's interval leaves out the error in its own model.</p>`;
+  h += `<div class="table"><table>
+    <tr><td>effective sample size</td><td>${Math.round(d.ess).toLocaleString()}</td></tr>
+    <tr><td>mean weight (should be 1)</td><td>${d.mean_weight.toFixed(3)} ± ${(1.96 * d.mean_weight_se).toFixed(3)}</td></tr>
+    <tr><td>largest weight</td><td>${d.max_weight.toFixed(1)}</td></tr>
+    <tr><td>first attempts moved</td><td>${pct(d.changed)}%</td></tr>
+    <tr><td>choices out of the logs' reach</td><td>${pct(d.deficit)}%</td></tr>
+  </table></div>`;
+  for (const w of d.warnings || []) h += `<p class="warn">${esc(w)}</p>`;
+  $("result").innerHTML = h;
+}
+
+$("planBtn").addEventListener("click", () => {
+  const num = (id) => Number($(id).value);
+  const inputs = { per_day: num("perDay"), rate: num("rate"), gateways: num("gateways"), share: num("share"), lift: num("lift"), gap: num("gap") };
+  const rows = hindsight.plan(JSON.stringify(inputs), JSON.stringify([0.01, 0.02, 0.05, 0.1, 0.2]));
+  if (rows.error) { $("plan").innerHTML = `<p class="warn">${esc(rows.error)}</p>`; return; }
+  let h = `<div class="table"><table><tr><th>explored</th><th>where</th><th>lost a day</th><th>days</th><th>lost in all</th></tr>`;
+  for (const r of rows) {
+    h += `<tr><td>${100 * r.epsilon}%</td><td>${r.targeted ? "where it acts" : "everywhere"}</td><td>${Math.round(r.lost_per_day).toLocaleString()}</td><td>${r.days.toFixed(1)}</td><td>${Math.round(r.lost).toLocaleString()}</td></tr>`;
+  }
+  $("plan").innerHTML = h + "</table></div>";
+});
+</script>
+</body>
+</html>
