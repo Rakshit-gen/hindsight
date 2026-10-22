@@ -104,3 +104,37 @@ func (t *Table) validate() error {
 	}
 	return nil
 }
+
+func (t *Table) Probs(s State) map[string]float64 {
+	cands := t.candidates(s)
+	if len(cands) == 0 {
+		return nil
+	}
+	probs, eps := map[string]float64{}, t.Epsilon
+	placed := false
+	for _, r := range t.Rules {
+		if !r.matches(s) {
+			continue
+		}
+		if placed = r.place(cands, probs); placed {
+			if r.Epsilon != nil {
+				eps = *r.Epsilon
+			}
+			break
+		}
+	}
+	if !placed {
+		for _, g := range cands {
+			probs[g] = 1 / float64(len(cands))
+		}
+	}
+	// Exploring covers every eligible gateway, tried or not, so the logs
+	// can speak to retry rules too.
+	for g := range probs {
+		probs[g] *= 1 - eps
+	}
+	for _, g := range s.Eligible {
+		probs[g] += eps / float64(len(s.Eligible))
+	}
+	return probs
+}
