@@ -39,3 +39,24 @@ func TestReadJSONL(t *testing.T) {
 		t.Fatalf("payments should be oldest first: %+v", ps)
 	}
 }
+
+func TestRejects(t *testing.T) {
+	bad := map[string]string{
+		"no propensity":    `{"payment":"a","attempt":1,"eligible":["x"],"gateway":"x","outcome":"success"}`,
+		"chose ineligible": `{"payment":"a","attempt":1,"eligible":["x"],"gateway":"y","propensity":1,"outcome":"success"}`,
+		"no eligible":      `{"payment":"a","attempt":1,"gateway":"x","propensity":1,"outcome":"success"}`,
+	}
+	for name, line := range bad {
+		if _, err := Read(strings.NewReader(line)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+	gap := []Attempt{{Payment: "a", Attempt: 1}, {Payment: "a", Attempt: 3}}
+	if _, err := Group(gap); err == nil {
+		t.Error("a gap in attempt numbers should be an error")
+	}
+	paidTwice := []Attempt{{Payment: "a", Attempt: 1, Outcome: "success"}, {Payment: "a", Attempt: 2, Outcome: "success"}}
+	if _, err := Group(paidTwice); err == nil {
+		t.Error("an attempt after a success should be an error")
+	}
+}
